@@ -55,7 +55,8 @@ def model_fn():
     keras_model = create_model()
     return tff.learning.from_keras_model(
         keras_model,
-        input_spec=(tf.TensorSpec((None, 16), tf.TensorSpec(shape=(None, 1)))),
+        input_spec=(tf.TensorSpec(shape=(None, 16), dtype=tf.float32),  # Input features
+                   tf.TensorSpec(shape=(None, 1), dtype=tf.float32)),  # Labels
         loss=tf.keras.losses.BinaryCrossentropy(),
         metrics=[tf.keras.metrics.BinaryAccuracy()]
     )
