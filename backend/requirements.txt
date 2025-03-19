@@ -1,0 +1,5 @@
+Flask
+tensorflow
+tensorflow_federated
+numpy
+pandas
