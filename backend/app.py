@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify
 import tensorflow as tf
 import tensorflow_federated as tff
-import numpy as np
 import pandas as pd
 import os
 
