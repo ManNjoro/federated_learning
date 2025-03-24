@@ -24,6 +24,13 @@ and citizen services without sharing sensitive information.
 
 ## INSTALLATION
 
+### Prequisites
+
+------------
+
+* node
+* python
+
 ### STEP 1
 
 ```bash
