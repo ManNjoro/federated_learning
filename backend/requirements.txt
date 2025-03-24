@@ -1,5 +1,4 @@
 Flask
 tensorflow
 tensorflow-federated
-numpy
 pandas
