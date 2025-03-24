@@ -39,7 +39,7 @@ npm install
 
 # Start backend (Flask + Flower)
 cd backend
-python app.py
+python flower.py
 
 # In new terminal - start frontend
 cd frontend
