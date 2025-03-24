@@ -24,6 +24,38 @@ and citizen services without sharing sensitive information.
 
 ## INSTALLATION
 
+### STEP 1
+
 ```bash
 git clone https://github.com/ManNjoro/federated_learning.git
 ```
+
+### STEP 2
+
+#### Create a virtual environment and activate it to install the required python dependencies
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+##### Windows OS
+
+```bash
+python -m venv venv
+venv\Scripts\activate
+```
+
+### STEP 3 - Installation of required dependencies
+
+#### Frontend
+
+* Navigate to frontend directory `cd frontend`
+* Install the dependencies `npm i`
+* Start the frontend server `npm run dev`
+
+#### Backend
+
+* Install the dependencies `pip install -r requirements.txt`
+* Navigate to backend directory `cd backend`
+* Start the backend server `python app.py`
