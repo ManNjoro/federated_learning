@@ -6,6 +6,7 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('upload')
   const [file, setFile] = useState(null)
   const [trainingStatus, setTrainingStatus] = useState(null)
+  const [feedback, setFeedback] = useState(null)
 
   const handleFileUpload = async (e) => {
     e.preventDefault()
@@ -35,6 +36,7 @@ export default function AdminDashboard() {
       })
       const data = await response.json()
       console.log('data', data)
+      setFeedback(data.error || '')
       setTrainingStatus('completed')
     } catch (error) {
       console.error('Training error:', error)
@@ -179,8 +181,8 @@ export default function AdminDashboard() {
               </button>
               
               {trainingStatus === 'completed' && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-green-800">
-                  Training completed successfully! Model has been updated.
+                <div className={`${feedback ? "bg-red-50 border-red-200 text-red-800" : "bg-green-50 border-green-200 text-green-800"} border rounded-lg p-4`}>
+                  {feedback ? feedback : 'Training completed successfully! Model has been updated.'}
                 </div>
               )}
             </div>
