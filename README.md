@@ -1,6 +1,6 @@
 # Federated Learning for Diabetes Detection
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-blue)](https://www.python.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-green)](https://nodejs.org/)
 
@@ -36,3 +36,50 @@ pip install -r requirements.txt
 # Set up frontend
 cd frontend
 npm install
+
+# Start backend (Flask + Flower)
+cd backend
+python app.py
+
+# In new terminal - start frontend
+cd frontend
+npm run dev
+```
+
+Access: `http://localhost:5173` # Your port could be different
+
+## 🌐 Usage
+
+### For Hospitals
+
+- Upload anonymized patient data through the admin interface
+- Participate in federated training rounds
+- Monitor local model performance
+
+### For Clinicians
+
+- Enter patient symptoms through the dashboard
+- View real-time diabetes risk predictions
+- See explainable AI insights
+
+## 📸 Screenshots
+
+### Dashboard
+
+![Dashboard](https://github.com/ManNjoro/federated_learning/blob/main/screenshots/dashboard.png)
+
+### Patient Data Upload
+
+![Patient Data Upload](https://github.com/ManNjoro/federated_learning/blob/main/screenshots/patient_upload.png)
+
+### Model Training
+
+![Model Training](https://github.com/ManNjoro/federated_learning/blob/main/screenshots/model_training.png)
+
+## 📜 License
+
+[MIT License](https://github.com/ManNjoro/federated_learning/blob/main/LICENSE) - See LICENSE for details.
+
+## 📬 Contact
+
+For questions or collaborations, please open an issue or contact [your email].
