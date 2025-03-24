@@ -245,41 +245,85 @@ def predict():
             global_model.eval()
             prediction = global_model(input_tensor).item()  # sigmoid output 0-1
         
-        # 7. Format response
-        risk_level = "High" if prediction >= 0.7 else "Medium" if prediction >= 0.3 else "Low"
+        # 7. Enhanced interpretation
+        risk_level = "High" if prediction >= 0.7 else "Medium" if prediction >= 0.4 else "Low"
+        
+        # Clinical advice based on risk level
+        clinical_advice = []
+        if risk_level == "High":
+            clinical_advice = [
+                "Immediate HbA1c test recommended",
+                "Fasting plasma glucose test required",
+                "Refer to endocrinology specialist"
+            ]
+        elif risk_level == "Medium":
+            clinical_advice = [
+                "Oral glucose tolerance test suggested",
+                "Lifestyle counseling recommended",
+                "Retest in 3-6 months"
+            ]
+        else:
+            clinical_advice = [
+                "Routine monitoring suggested",
+                "Educate on early warning signs"
+            ]
+        
+        # Get top features with clinical notes
+        top_features = get_top_features_with_notes(input_tensor)
         
         return jsonify({
-            'prediction': prediction,
+            'prediction': round(prediction, 4),
             'risk_level': risk_level,
-            'interpretation': f"{risk_level} risk of diabetes",
-            'important_features': get_top_features(input_tensor)  # See helper function below
+            'confidence': get_confidence_description(prediction),
+            'clinical_actions': clinical_advice,
+            'feature_analysis': top_features,
+            'interpretation': f"{risk_level} risk of diabetes (confidence: {get_confidence_description(prediction)})"
         })
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# Helper function to explain predictions
-def get_top_features(input_tensor):
-    """Returns the 3 most influential features for the prediction"""
+def get_top_features_with_notes(input_tensor):
+    """Returns the top 3 features with clinical explanations"""
     global global_model
     
-    # 1. Get gradients to see feature importance
+    # Clinical notes for each feature
+    FEATURE_NOTES = {
+        'Polyuria': "Excessive urination is a classic symptom of uncontrolled blood sugar",
+        'Polydipsia': "Extreme thirst often accompanies high glucose levels",
+        'sudden weight loss': "Unexpected weight loss may indicate insulin deficiency",
+        'Gender': "Males generally have higher diabetes prevalence",
+        'Itching': "Persistent itching may indicate fungal infections common in diabetics",
+        'delayed healing': "Poor wound healing suggests vascular complications",
+        # Add notes for other features...
+    }
+    
+    # Get feature importance
     input_tensor.requires_grad = True
     global_model.zero_grad()
     prediction = global_model(input_tensor)
     prediction.backward()
     
-    # 2. Get absolute gradient values
     grads = input_tensor.grad.data.abs().numpy()[0]
     feature_importance = dict(zip(EXPECTED_COLUMNS[:-1], grads))
     
-    # 3. Return top 3 influential features
     top_features = sorted(feature_importance.items(), key=lambda x: x[1], reverse=True)[:3]
+    
     return [{
         'feature': feature,
         'importance': float(importance),
-        'direction': "Positive" if input_tensor[0][i].item() > 0 else "Negative"
+        'direction': "Positive" if input_tensor[0][i].item() > 0 else "Negative",
+        'clinical_note': FEATURE_NOTES.get(feature, "Associated with metabolic syndrome")
     } for i, (feature, importance) in enumerate(top_features)]
+
+def get_confidence_description(prediction):
+    """Converts prediction score to confidence level"""
+    if prediction >= 0.8: return "Very High Confidence"
+    elif prediction >= 0.7: return "High Confidence"
+    elif prediction >= 0.6: return "Moderate Confidence"
+    elif prediction >= 0.5: return "Low Confidence"
+    elif prediction >= 0.3: return "Very Low Confidence"
+    else: return "Minimal Confidence"
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
