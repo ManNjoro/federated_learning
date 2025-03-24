@@ -5,11 +5,14 @@ import torch.optim as optim
 import pandas as pd
 import numpy as np
 import flwr as fl
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 from flwr.common import Metrics
 import os
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
+import subprocess
+import threading
+import time
 
 app = Flask(__name__)
 
@@ -53,11 +56,10 @@ class DiabetesModel(nn.Module):
     def forward(self, x):
         x = self.relu(self.fc1(x))
         x = self.relu(self.fc2(x))
-        x = self.sigmoid(self.fc3(x))
-        return x
+        return self.sigmoid(self.fc3(x))
 
 # Flower Client
-class FlowerClient(fl.client.NumPyClient):
+class FlowerClient(fl.client.Client):
     def __init__(self, model, train_loader, test_loader):
         self.model = model
         self.train_loader = train_loader
@@ -97,10 +99,12 @@ class FlowerClient(fl.client.NumPyClient):
         accuracy = correct / len(self.test_loader.dataset)
         return float(total_loss / len(self.test_loader)), len(self.test_loader.dataset), {"accuracy": accuracy}
 
-# Global model state
+# Global state
 global_model = DiabetesModel()
 global_train_loader = None
 global_test_loader = None
+server_process = None
+client_process = None
 
 # Metric aggregation
 def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
@@ -111,6 +115,31 @@ def weighted_average(metrics: List[Tuple[int, Metrics]]) -> Metrics:
         "accuracy": sum(accuracies) / sum(examples),
         "loss": sum(losses) / sum(examples),
     }
+
+def start_superlink():
+    """Start the Flower SuperLink in a subprocess"""
+    global server_process
+    server_process = subprocess.Popen([
+        "flower-superlink",
+        "--insecure",
+        "--min-available-clients=1",
+        "--port=8080"
+    ])
+
+def start_supernode():
+    """Start the Flower client as a SuperNode"""
+    global client_process, global_model, global_train_loader, global_test_loader
+    if global_train_loader is None:
+        return False
+    
+    client = FlowerClient(global_model, global_train_loader, global_test_loader)
+    client_process = subprocess.Popen([
+        "flower-supernode",
+        "--insecure",
+        "--superlink=localhost:8080",
+        f"--client={client.__module__}:{client.__class__.__name__}"
+    ])
+    return True
 
 # Flask endpoints
 @app.route('/upload_data', methods=['POST'])
@@ -156,36 +185,18 @@ def upload_data():
 
 @app.route('/start_training', methods=['POST'])
 def start_training():
-    global global_model, global_train_loader, global_test_loader
+    global server_process, client_process
     
-    if global_train_loader is None:
+    # Start SuperLink if not running
+    if server_process is None:
+        start_superlink()
+        time.sleep(2)  # Give server time to start
+    
+    # Start SuperNode
+    if not start_supernode():
         return jsonify({'error': 'No data available for training'}), 400
     
-    try:
-        # Start Flower server in a separate thread
-        def start_server():
-            strategy = fl.server.strategy.FedAvg(
-                min_available_clients=1,
-                evaluate_metrics_aggregation_fn=weighted_average,
-                fit_metrics_aggregation_fn=weighted_average,
-            )
-            fl.server.start_server(
-                server_address="0.0.0.0:8080",
-                config=fl.server.ServerConfig(num_rounds=3),
-                strategy=strategy
-            )
-        
-        import threading
-        server_thread = threading.Thread(target=start_server)
-        server_thread.start()
-        
-        # Start Flower client
-        client = FlowerClient(global_model, global_train_loader, global_test_loader)
-        fl.client.start_numpy_client(server_address="127.0.0.1:8080", client=client)
-        
-        return jsonify({'status': 'Training completed'})
-    except Exception as e:
-        return jsonify({'error': f'Error during training: {str(e)}'}), 500
+    return jsonify({'status': 'Training started'})
 
 @app.route('/get_global_model', methods=['GET'])
 def get_global_model():
@@ -193,5 +204,83 @@ def get_global_model():
     weights = [param.detach().numpy().tolist() for param in global_model.parameters()]
     return jsonify({'weights': weights})
 
+@app.route('/stop_training', methods=['POST'])
+def stop_training():
+    global server_process, client_process
+    if client_process:
+        client_process.terminate()
+    if server_process:
+        server_process.terminate()
+    return jsonify({'status': 'Training stopped'})
+
+# Add this endpoint with the others in your Flask app
+@app.route('/predict', methods=['POST'])
+def predict():
+    global global_model
+    
+    try:
+        # 1. Get input data from request
+        input_data = request.json
+        if not input_data:
+            return jsonify({'error': 'No input data provided'}), 400
+        
+        # 2. Convert input to DataFrame for preprocessing
+        input_df = pd.DataFrame([input_data])
+        
+        # 3. Preprocess (same as training)
+        input_df['Gender'] = input_df['Gender'].map({'Male': 1, 'Female': 0})
+        input_df = input_df.replace({'Yes': 1, 'No': 0})
+        
+        # 4. Validate all 16 features are present
+        missing_cols = set(EXPECTED_COLUMNS) - set(input_df.columns) - {'class'}
+        if missing_cols:
+            return jsonify({'error': f'Missing features: {missing_cols}'}), 400
+        
+        # 5. Prepare tensor
+        features = input_df[EXPECTED_COLUMNS[:-1]]  # exclude 'class'
+        input_tensor = torch.tensor(features.values.astype(float), dtype=torch.float32)
+        
+        # 6. Make prediction
+        with torch.no_grad():
+            global_model.eval()
+            prediction = global_model(input_tensor).item()  # sigmoid output 0-1
+        
+        # 7. Format response
+        risk_level = "High" if prediction >= 0.7 else "Medium" if prediction >= 0.3 else "Low"
+        
+        return jsonify({
+            'prediction': prediction,
+            'risk_level': risk_level,
+            'interpretation': f"{risk_level} risk of diabetes",
+            'important_features': get_top_features(input_tensor)  # See helper function below
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Helper function to explain predictions
+def get_top_features(input_tensor):
+    """Returns the 3 most influential features for the prediction"""
+    global global_model
+    
+    # 1. Get gradients to see feature importance
+    input_tensor.requires_grad = True
+    global_model.zero_grad()
+    prediction = global_model(input_tensor)
+    prediction.backward()
+    
+    # 2. Get absolute gradient values
+    grads = input_tensor.grad.data.abs().numpy()[0]
+    feature_importance = dict(zip(EXPECTED_COLUMNS[:-1], grads))
+    
+    # 3. Return top 3 influential features
+    top_features = sorted(feature_importance.items(), key=lambda x: x[1], reverse=True)[:3]
+    return [{
+        'feature': feature,
+        'importance': float(importance),
+        'direction': "Positive" if input_tensor[0][i].item() > 0 else "Negative"
+    } for i, (feature, importance) in enumerate(top_features)]
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
+    
