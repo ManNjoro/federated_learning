@@ -13,8 +13,10 @@ from sklearn.model_selection import train_test_split
 import subprocess
 import threading
 import time
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 
 # Directory setup
 UPLOAD_FOLDER = 'uploads'
