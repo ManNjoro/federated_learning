@@ -1,31 +1,31 @@
 from flask import Flask, request, jsonify
 import tensorflow as tf
 import tensorflow_federated as tff
+import numpy as np
 import pandas as pd
 import os
+import collections
 
 app = Flask(__name__)
 
-# Directory to store uploaded files
+# Directory setup
 UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
-
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# Expected columns in the dataset
+# Expected dataset columns
 EXPECTED_COLUMNS = [
     'Age', 'Gender', 'Polyuria', 'Polydipsia', 'sudden weight loss', 'weakness',
     'Polyphagia', 'Genital thrush', 'visual blurring', 'Itching', 'Irritability',
     'delayed healing', 'partial paresis', 'muscle stiffness', 'Alopecia', 'Obesity', 'class'
 ]
 
-# Load dataset (for demonstration, we'll use a placeholder)
+# Initialize empty dataframe
 data = pd.DataFrame()
 
-# Preprocessing
+# Data preprocessing
 def preprocess_data(data):
-    # Validate columns
     if not all(column in data.columns for column in EXPECTED_COLUMNS):
         raise ValueError("Uploaded data does not have the expected columns.")
     
@@ -35,42 +35,44 @@ def preprocess_data(data):
     labels = data['class'].map({'Positive': 1, 'Negative': 0})
     return features, labels
 
-# Convert to TensorFlow datasets
 def create_tf_dataset(features, labels):
-    dataset = tf.data.Dataset.from_tensor_slices((features.values, labels.values))
-    return dataset
+    return tf.data.Dataset.from_tensor_slices((features.values, labels.values))
 
-# Define model
 def create_model():
-    model = tf.keras.Sequential([
+    return tf.keras.Sequential([
         tf.keras.layers.Dense(16, activation='relu', input_shape=(16,)),
         tf.keras.layers.Dense(8, activation='relu'),
         tf.keras.layers.Dense(1, activation='sigmoid')
     ])
-    return model
 
-# Convert to TFF model
 def model_fn():
     keras_model = create_model()
-    return tff.learning.from_keras_model(
+    return tff.learning.models.from_keras_model(
         keras_model,
-        input_spec=(tf.TensorSpec(shape=(None, 16), dtype=tf.float32),  # Input features
-                   tf.TensorSpec(shape=(None, 1), dtype=tf.float32)),  # Labels
+        input_spec=collections.OrderedDict([
+            ('x', tf.TensorSpec(shape=[None, 16], dtype=tf.float32)),
+            ('y', tf.TensorSpec(shape=[None, 1], dtype=tf.float32))
+        ]),
         loss=tf.keras.losses.BinaryCrossentropy(),
         metrics=[tf.keras.metrics.BinaryAccuracy()]
     )
 
-# Federated averaging process
-iterative_process = tff.learning.build_federated_averaging_process(
+# Correct optimizer configuration for TFF 0.87.0
+def client_optimizer_fn():
+    return tf.keras.optimizers.Adam()
+
+def server_optimizer_fn():
+    return tf.keras.optimizers.SGD(learning_rate=1.0)
+
+fed_avg = tff.learning.algorithms.build_weighted_fed_avg(
     model_fn,
-    client_optimizer_fn=lambda: tf.keras.optimizers.Adam(),
-    server_optimizer_fn=lambda: tf.keras.optimizers.SGD(learning_rate=1.0)
+    client_optimizer_fn=client_optimizer_fn,
+    server_optimizer_fn=server_optimizer_fn
 )
 
-# Initialize the federated learning state
-state = iterative_process.initialize()
+state = fed_avg.initialize()
 
-# Endpoint to upload data
+# Flask endpoints remain the same as before
 @app.route('/upload_data', methods=['POST'])
 def upload_data():
     if 'file' not in request.files:
@@ -80,12 +82,10 @@ def upload_data():
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
     
-    # Save the file
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
     file.save(filepath)
     
     try:
-        # Load and preprocess the data
         global data
         data = pd.read_csv(filepath)
         features, labels = preprocess_data(data)
@@ -95,7 +95,6 @@ def upload_data():
     except Exception as e:
         return jsonify({'error': f'Error processing file: {str(e)}'}), 500
 
-# Endpoint to start federated training
 @app.route('/start_training', methods=['POST'])
 def start_training():
     global state, data
@@ -103,26 +102,23 @@ def start_training():
         return jsonify({'error': 'No data available for training'}), 400
     
     try:
-        # Convert data to TensorFlow dataset
         features, labels = preprocess_data(data)
         client_dataset = create_tf_dataset(features, labels)
         
-        # Simulate federated training
-        for round_num in range(10):  # 10 rounds of federated training
-            state, metrics = iterative_process.next(state, [client_dataset])
+        for round_num in range(10):
+            result = fed_avg.next(state, [client_dataset])
+            state = result.state
+            metrics = result.metrics
             print(f'Round {round_num}, Metrics: {metrics}')
         
         return jsonify({'status': 'Training completed', 'metrics': str(metrics)})
     except Exception as e:
         return jsonify({'error': f'Error during training: {str(e)}'}), 500
 
-# Endpoint to get the current global model
 @app.route('/get_global_model', methods=['GET'])
 def get_global_model():
     global state
-    # Extract the global model weights
-    global_weights = state.model_weights
-    return jsonify({'weights': global_weights})
+    return jsonify({'weights': state.model.trainable})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
