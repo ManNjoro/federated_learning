@@ -82,4 +82,4 @@ Access: `http://localhost:5173` # Your port could be different
 
 ## 📬 Contact
 
-For questions or collaborations, please open an issue or contact [your email].
+For questions or collaborations, please open an issue or contact [elijohnmwoho@gmail.com].
